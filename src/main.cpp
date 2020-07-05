@@ -1,4 +1,4 @@
-
+#include <sys/cdefs.h>
 
 
 // WIFI!!!
@@ -9,7 +9,7 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <MFRC522.h>
-
+#include <base64.h>
 
 #include "credentials.h"
 
@@ -21,8 +21,21 @@ HTTPClient http;
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
 
 
+enum AuthGrantType {
+    AUTHORIZATION_CODE,
+    REFRESH_TOKEN
+};
+
+struct HttpResponse {
+    String response;
+    int code;
+};
+
+
 // Function prototypes for HTTP handlers.
 void handleAuth();
+
+int refreshAccessToken();
 
 void handleNotFound();
 
@@ -32,14 +45,19 @@ void saveRefreshToken();
 
 void dumpEEPROM();
 
+void getAccessToken();
 
-String getIdFromNTAG(int length);
+HttpResponse makeAuthRequest(AuthGrantType grantType, String code = "");
+
+String getIdFromNTAG();
 
 String readRefreshToken();
 
 
-char spotifyConnected = 0;
+void playSpotifyResource(String id);
 
+char spotifyConnected = 0;
+String lastID = "", currID = "";
 String spotifyAccess, spotifyRefresh;
 
 
@@ -95,6 +113,9 @@ void setup(void) {
         Serial.print("Refresh found: ");
         Serial.println(spotifyRefresh);
         spotifyConnected = 1;
+
+        // Get new access token.
+        refreshAccessToken();
     }
 
     SPI.begin();      // Init SPI bus
@@ -110,26 +131,83 @@ void loop(void) {
         return;
     }
 
-    // Reset the loop if no new card present on the sensor/reader. This saves the entire process when idle.
+    // Look for new cards
     if (!mfrc522.PICC_IsNewCardPresent()) {
         return;
     }
-
-    // Select one of the cards
     if (!mfrc522.PICC_ReadCardSerial()) {
         return;
     }
 
+
+    currID = getIdFromNTAG();
+//    Serial.println(currID);
+
+    if (!currID.equals(lastID)) {
+        playSpotifyResource(currID);
+    }
+
+    lastID = currID;
+
+    delay(500);
+
+
+}
+
+int refreshAccessToken() {
+
+    const HttpResponse response = makeAuthRequest(REFRESH_TOKEN);
+    Serial.println(response.response);
+
+    StaticJsonDocument<JSON_OBJECT_SIZE(4) + 350> doc;
+    String json = response.response;
+    Serial.println();
+    Serial.println(json);
+    Serial.println(json.charAt(0));
     Serial.println();
 
-    String id = getIdFromNTAG(22);
+    DeserializationError error = deserializeJson(doc, json);
+    if (error) {
+        Serial.println(error.c_str());
+        return error.code();
+    }
+    spotifyAccess = doc["access_token"].as<char *>();
+    Serial.println("Access Token acquired:");
+    Serial.println(spotifyAccess);
+
+    return 0;
+
+
+}
+
+
+void playSpotifyResource(String id) {
     Serial.println(id);
+    Serial.println(spotifyAccess);
+    String url = SPOTIFY_BASE_API;
+    url += "/v1/me/player/play";
 
 
-    delay(3000);
+    http.begin(url, SPOTIFY_CERT_FINGERPRINT);
+
+    http.addHeader("Authorization", "Bearer " + spotifyAccess);
+
+    Serial.println(http.header("Authorization"));
 
 
+    const int capacity = JSON_OBJECT_SIZE(1);
+    StaticJsonDocument<capacity> doc;
+    doc["context_uri"] = id.c_str();
+    String payload;
+    serializeJson(doc, payload);
 
+
+    Serial.println(payload);
+    int responseCode = http.PUT(payload);
+    Serial.println(responseCode);
+    Serial.println(http.getString());
+
+    http.end();
 
 }
 
@@ -143,57 +221,37 @@ void handleAuth() {
     String code = server.arg("code");
 
 
-    // Build post payload.
-    Serial.println();
-    String payload = "code=" + code;
-    payload += "&grant_type=authorization_code";
-    payload += "&redirect_uri=http://192.168.1.78/auth";
-    payload += "&client_secret=" + SPOTIFY_CLIENT_SECRET;
-    payload += "&client_id=" + SPOTIFY_CLIENT_ID;
-    Serial.println(payload);
+    const HttpResponse response = makeAuthRequest(AUTHORIZATION_CODE, code);
+    Serial.println(response.response);
 
-    // Build the request
-    http.begin(SPOTIFY_ACCOUNTS_API + "/api/token", SPOTIFY_CERT_FINGERPRINT);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-    // Make the request.
-    int httpCode = http.POST(payload);
-    const String response = http.getString();
+    if (response.code != 200) {
+        return server.send(500, "text/plain", "There was an error. Try again!");
+    }
 
     // Handle the request response.
-    if (httpCode == 200) {
+
+
+    // Parse the json response.
+    StaticJsonDocument<JSON_OBJECT_SIZE(5) + 480> doc;
+    DeserializationError error = deserializeJson(doc, response.response);
+    if (error) {
+        Serial.println("Deserialization failed.");
+    } else {
+        spotifyAccess = doc["access_token"].as<char *>();
+        spotifyRefresh = doc["refresh_token"].as<char *>();
+        saveRefreshToken();
+
+        Serial.println("Saved refresh token: ");
+        Serial.println(spotifyRefresh);
+
+        Serial.println("Read refresh token: ");
+        Serial.println(readRefreshToken());
+
         server.send(200, "text/plain", "Success!");
         server.stop(); ///< No longer need the server.
         spotifyConnected = 1;
 
-        // Parse the json response.
-        StaticJsonDocument<510> doc;
-        DeserializationError error = deserializeJson(doc, response.c_str());
-        if (error) {
-            Serial.println("Deserialization failed.");
-        } else {
-            spotifyAccess = doc["access_token"].as<char *>();
-            spotifyRefresh = doc["refresh_token"].as<char *>();
-            saveRefreshToken();
-
-            Serial.println("Saved refresh token: ");
-            Serial.println(spotifyRefresh);
-
-            Serial.println("Read refresh token: ");
-            Serial.println(readRefreshToken());
-
-        }
-
-
-    } else {
-        server.send(500, "text/plain", "There was an error. Try again!");
     }
-
-    Serial.println(httpCode);
-    Serial.println(response);
-
-    // Close the connection.
-    http.end();
 
 }
 
@@ -225,6 +283,35 @@ void saveRefreshToken() {
 
     EEPROM.commit();
 }
+
+// Authorise the user using spotify's accounts API.
+HttpResponse makeAuthRequest(AuthGrantType grantType, String code) {
+    http.begin(SPOTIFY_ACCOUNTS_API + "/token", SPOTIFY_CERT_FINGERPRINT);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    String basicAuth = base64::encode(SPOTIFY_CLIENT_ID + ":" + SPOTIFY_CLIENT_SECRET);
+    http.setAuthorization(basicAuth.c_str());
+    String payload = "grant_type=";
+
+    switch (grantType) {
+        case REFRESH_TOKEN:
+            payload += "refresh_token&refresh_token=";
+            payload += spotifyRefresh.c_str();
+            break;
+        case AUTHORIZATION_CODE:
+            payload += "authorization_code&redirect_uri=http://192.168.1.78/auth&code=";
+            payload += code;
+            break;
+    }
+
+    HttpResponse res;
+    res.code = http.POST(payload);
+    res.response = http.getString();
+
+    http.end();
+    return res;
+
+}
+
 
 String readRefreshToken() {
     int addr = 0;
@@ -261,23 +348,36 @@ void dumpEEPROM() {
 
 }
 
-String getIdFromNTAG(int length) {
+String getIdFromNTAG() {
+
+    byte minBufSize = 18; // imposed by library :(
+    byte pageIdx = 0x04;
 
 
-    byte loops = ceil((length) / 16.0) + 1;
+    // Read length
+    byte tempBuffer[minBufSize];
+    mfrc522.MIFARE_Read(pageIdx++, tempBuffer, &minBufSize);
+    int idLength = tempBuffer[0];
+//    Serial.println(idLength);
+
+    // Calculate required buffer size.
+    byte loops = ceil((idLength) / 16.0) + 1;
     byte bufferSize = (16 * loops) + 2;
     byte buffer[bufferSize];
     byte *bufferPtr = buffer;
-    byte pageIdx = 0x04;
 
-    for (int i = 0 ; i < loops; i++) {
+
+    for (int i = 0; i < loops; i++) {
         mfrc522.MIFARE_Read(pageIdx, bufferPtr, &bufferSize);
         bufferPtr += 16;
         pageIdx += 4;
     }
 
-
-    return String( (char *) buffer);
+    String id = "";
+    for (int i = 0; i < idLength; i++) {
+        id += (char) buffer[i];
+    }
+    return id;
 }
 
 void dumpByteArray(byte *buffer, byte bufferSize) {
@@ -288,4 +388,6 @@ void dumpByteArray(byte *buffer, byte bufferSize) {
     }
     Serial.println();
 }
+
+
 
