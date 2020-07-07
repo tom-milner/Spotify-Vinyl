@@ -7,67 +7,33 @@
 #include <ESP8266WebServer.h>   // Include the WebServer library
 #include <ESP8266HTTPClient.h>
 #include <ArduinoJson.h>
-#include <EEPROM.h>
 #include <MFRC522.h>
 #include <base64.h>
 
 #include "credentials.h"
+#include "main.h"
+#include "spotifyapi.h"
+#include "structures.h"
+#include "localStorage.h"
 
 #define RST_PIN    0
 #define SS_PIN    15
 
 ESP8266WebServer server(80);
-HTTPClient http;
+//HTTPClient http;
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
 
-char spotifyConnected = 0;
+SpotifyAPI spotifyApi;
+LocalStorage localStorage;
+
 String lastID = "", currID = "";
-String spotifyAccess, spotifyRefresh;
 
 
-enum AuthGrantType {
-    AUTHORIZATION_CODE,
-    REFRESH_TOKEN
-};
-
-struct HttpResponse {
-    String response;
-    int code;
-};
-
-
-// Function prototypes for HTTP handlers.
-void handleAuth();
-
-int refreshAccessToken();
-
-uint16_t generateChecksum(char * data);
-
-void handleNotFound();
-
-void dumpByteArray(byte *buffer, byte bufferSize);
-
-void saveRefreshToken();
-
-void dumpEEPROM();
-
-void getAccessToken();
-
-HttpResponse makeAuthRequest(AuthGrantType grantType, String code = "");
-
-String getIdFromNTAG();
-
-String readRefreshToken();
-
-
-void playSpotifyResource(String id);
-
-
-
-
+// ============================================================
+//                          Main
+// ============================================================
 void setup(void) {
     Serial.begin(115200);         // Start the Serial communication to send messages to the computer
-    EEPROM.begin(512);
     delay(10);
     Serial.println('\n');
 
@@ -97,10 +63,10 @@ void setup(void) {
 
 
     // Get the past refresh token from EEPROM.
-    spotifyRefresh = readRefreshToken();
+    spotifyApi.setRefreshToken(localStorage.readRefreshToken());
 
     // If there is no refresh token, setup the webserver for authentication.
-    if (spotifyRefresh.equals("")) {
+    if (spotifyApi.getRefreshToken().equals("")) {
 
         Serial.println("No refresh found.");
 
@@ -115,11 +81,11 @@ void setup(void) {
 
     } else {
         Serial.print("Refresh found: ");
-        Serial.println(spotifyRefresh);
-        spotifyConnected = 1;
+        Serial.println(spotifyApi.getRefreshToken());
+        spotifyApi.isConnected = 1;
 
         // Get new access token.
-        refreshAccessToken();
+        spotifyApi.refreshAccessToken();
     }
 
     SPI.begin();      // Init SPI bus
@@ -130,7 +96,7 @@ void setup(void) {
 
 void loop(void) {
 
-    if (!spotifyConnected) {
+    if (!spotifyApi.isConnected) {
         server.handleClient();  // Listen for HTTP requests from clients
         return;
     }
@@ -148,7 +114,7 @@ void loop(void) {
 //    Serial.println(currID);
 
     if (!currID.equals(lastID)) {
-        playSpotifyResource(currID);
+        spotifyApi.playSpotifyResource(currID);
     }
 
     lastID = currID;
@@ -158,65 +124,12 @@ void loop(void) {
 
 }
 
-int refreshAccessToken() {
-
-    const HttpResponse response = makeAuthRequest(REFRESH_TOKEN);
-    Serial.println(response.response);
-
-    StaticJsonDocument<JSON_OBJECT_SIZE(4) + 350> doc;
-    String json = response.response;
-    Serial.println();
-    Serial.println(json);
-    Serial.println(json.charAt(0));
-    Serial.println();
-
-    DeserializationError error = deserializeJson(doc, json);
-    if (error) {
-        Serial.println(error.c_str());
-        return error.code();
-    }
-    spotifyAccess = doc["access_token"].as<char *>();
-    Serial.println("Access Token acquired:");
-    Serial.println(spotifyAccess);
-
-    return 0;
 
 
-}
 
-
-void playSpotifyResource(String id) {
-    Serial.println(id);
-    Serial.println(spotifyAccess);
-    String url = SPOTIFY_BASE_API;
-    url += "/v1/me/player/play";
-
-
-    http.begin(url, SPOTIFY_CERT_FINGERPRINT);
-
-    http.addHeader("Authorization", "Bearer " + spotifyAccess);
-
-    Serial.println(http.header("Authorization"));
-
-
-    const int capacity = JSON_OBJECT_SIZE(1);
-    StaticJsonDocument<capacity> doc;
-    doc["context_uri"] = id.c_str();
-    String payload;
-    serializeJson(doc, payload);
-
-
-    Serial.println(payload);
-    int responseCode = http.PUT(payload);
-    Serial.println(responseCode);
-    Serial.println(http.getString());
-
-    http.end();
-
-}
-
-
-// Handle authenticating the user to spotify.
+// ============================================================
+//                          Webserver
+// ============================================================
 void handleAuth() {
     Serial.println("Auth hit!!");
 
@@ -225,37 +138,19 @@ void handleAuth() {
     String code = server.arg("code");
 
 
-    const HttpResponse response = makeAuthRequest(AUTHORIZATION_CODE, code);
+    const HttpResponse response = spotifyApi.makeAuthRequest(AUTHORIZATION_CODE, code);
     Serial.println(response.response);
 
     if (response.code != 200) {
         return server.send(500, "text/plain", "There was an error. Try again!");
     }
 
-    // Handle the request response.
+    localStorage.saveRefreshToken(spotifyApi.getRefreshToken());
 
+    server.send(200, "text/plain", "Success!");
+    server.stop(); ///< No longer need the server.
+    spotifyApi.isConnected = 1;
 
-    // Parse the json response.
-    StaticJsonDocument<JSON_OBJECT_SIZE(5) + 480> doc;
-    DeserializationError error = deserializeJson(doc, response.response);
-    if (error) {
-        Serial.println("Deserialization failed.");
-    } else {
-        spotifyAccess = doc["access_token"].as<char *>();
-        spotifyRefresh = doc["refresh_token"].as<char *>();
-        saveRefreshToken();
-
-        Serial.println("Saved refresh token: ");
-        Serial.println(spotifyRefresh);
-
-        Serial.println("Read refresh token: ");
-        Serial.println(readRefreshToken());
-
-        server.send(200, "text/plain", "Success!");
-        server.stop(); ///< No longer need the server.
-        spotifyConnected = 1;
-
-    }
 
 }
 
@@ -263,94 +158,21 @@ void handleNotFound() {
     server.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
 }
 
-void saveRefreshToken() {
 
-    int addr = 0;
 
-    // Write the token flag, indicating that the EEPROM contains the token.
-    for (int i = 0; i < 4; i++) {
-        EEPROM.write(addr++, 15); // 00001111
+
+// ============================================================
+//                          NFC Wrapper
+// ============================================================
+
+
+uint16_t generateURIChecksum(char *data) {
+
+    uint16_t checksum = 0;
+    while (*data != '\0') {
+        checksum += *data++;
     }
-
-
-    // Write the token length to memory.
-    uint8_t tokenLength = (uint8_t) spotifyRefresh.length();
-    Serial.println();
-    Serial.print("Token Length: ");
-    Serial.println(tokenLength);
-    EEPROM.write(addr++, tokenLength);
-
-    // Write the token to memory.
-    for (int i = 0; i < tokenLength; i++) {
-        EEPROM.write(addr++, spotifyRefresh.charAt(i));
-    }
-
-    // A checksum isn't used here as the internal EEPROM is generally very reliable.
-
-    EEPROM.commit();
-}
-
-// Authorise the user using spotify's accounts API.
-HttpResponse makeAuthRequest(AuthGrantType grantType, String code) {
-    http.begin(SPOTIFY_ACCOUNTS_API + "/token", SPOTIFY_CERT_FINGERPRINT);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-    String basicAuth = base64::encode(SPOTIFY_CLIENT_ID + ":" + SPOTIFY_CLIENT_SECRET);
-    http.setAuthorization(basicAuth.c_str());
-    String payload = "grant_type=";
-
-    switch (grantType) {
-        case REFRESH_TOKEN:
-            payload += "refresh_token&refresh_token=";
-            payload += spotifyRefresh.c_str();
-            break;
-        case AUTHORIZATION_CODE:
-            payload += "authorization_code&redirect_uri=http://192.168.1.78/auth&code=";
-            payload += code;
-            break;
-    }
-
-    HttpResponse res;
-    res.code = http.POST(payload);
-    res.response = http.getString();
-
-    http.end();
-    return res;
-
-}
-
-
-String readRefreshToken() {
-    int addr = 0;
-
-    // Check the refresh token is present - first 4 bytes must all be 15.
-    for (int i = 0; i < 4; i++) {
-        if (EEPROM.read(addr++) != 15) {
-            return "";
-        }
-
-    }
-    Serial.println();
-
-    // Read the token length.
-    uint8_t tokenLength = EEPROM.read(addr++);
-
-
-    // Read the refresh token.
-    String token = "";
-    for (int i = 0; i < tokenLength; i++) {
-        token.concat((char) EEPROM.read(addr++));
-    }
-
-    return token;
-}
-
-void dumpEEPROM() {
-    Serial.println();
-    for (int i = 0; i < 512; i++) {
-        Serial.print((char) EEPROM.read(i));
-        Serial.print(" ");
-    }
-    Serial.println();
+    return checksum;
 
 }
 
@@ -387,10 +209,20 @@ String getIdFromNTAG() {
     }
 
     // Calculate checksum
-//    uint16_t calcChecksum = generateChecksum(id); // GOT HERE - refactor to remove strings!!!!
+//    uint16_t calcChecksum = generateURIChecksum(id); // GOT HERE - refactor to remove strings!!!!
 
     return id;
 }
+
+
+
+
+// ============================================================
+//                          Utility
+// ============================================================
+
+
+
 
 void dumpByteArray(byte *buffer, byte bufferSize) {
     Serial.println();
@@ -401,12 +233,3 @@ void dumpByteArray(byte *buffer, byte bufferSize) {
     Serial.println();
 }
 
-uint16_t generateChecksum(char * data){
-
-    uint16_t checksum = 0;
-    while(*data != '\0'){
-        checksum += *data++;
-    }
-    return checksum;
-
-}
