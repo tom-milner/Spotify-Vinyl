@@ -20,6 +20,10 @@ ESP8266WebServer server(80);
 HTTPClient http;
 MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
 
+char spotifyConnected = 0;
+String lastID = "", currID = "";
+String spotifyAccess, spotifyRefresh;
+
 
 enum AuthGrantType {
     AUTHORIZATION_CODE,
@@ -36,6 +40,8 @@ struct HttpResponse {
 void handleAuth();
 
 int refreshAccessToken();
+
+uint16_t generateChecksum(char * data);
 
 void handleNotFound();
 
@@ -56,9 +62,7 @@ String readRefreshToken();
 
 void playSpotifyResource(String id);
 
-char spotifyConnected = 0;
-String lastID = "", currID = "";
-String spotifyAccess, spotifyRefresh;
+
 
 
 void setup(void) {
@@ -281,6 +285,8 @@ void saveRefreshToken() {
         EEPROM.write(addr++, spotifyRefresh.charAt(i));
     }
 
+    // A checksum isn't used here as the internal EEPROM is generally very reliable.
+
     EEPROM.commit();
 }
 
@@ -354,11 +360,13 @@ String getIdFromNTAG() {
     byte pageIdx = 0x04;
 
 
-    // Read length
-    byte tempBuffer[minBufSize];
-    mfrc522.MIFARE_Read(pageIdx++, tempBuffer, &minBufSize);
-    int idLength = tempBuffer[0];
-//    Serial.println(idLength);
+    // Get the tag metadata (length, checksum)
+    byte metaBuffer[minBufSize];
+    mfrc522.MIFARE_Read(pageIdx++, metaBuffer, &minBufSize);
+    int idLength = metaBuffer[0]; // The length of the Spotify URI will always be less than 255.
+
+    // Read the checksum.
+    uint16_t foundChecksum = metaBuffer[1] << 8 | metaBuffer[2]; // Checksum is stored across 2 bytes.
 
     // Calculate required buffer size.
     byte loops = ceil((idLength) / 16.0) + 1;
@@ -377,6 +385,10 @@ String getIdFromNTAG() {
     for (int i = 0; i < idLength; i++) {
         id += (char) buffer[i];
     }
+
+    // Calculate checksum
+//    uint16_t calcChecksum = generateChecksum(id); // GOT HERE - refactor to remove strings!!!!
+
     return id;
 }
 
@@ -389,5 +401,12 @@ void dumpByteArray(byte *buffer, byte bufferSize) {
     Serial.println();
 }
 
+uint16_t generateChecksum(char * data){
 
+    uint16_t checksum = 0;
+    while(*data != '\0'){
+        checksum += *data++;
+    }
+    return checksum;
 
+}
