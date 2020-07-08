@@ -4,20 +4,19 @@
 // WIFI!!!
 
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>   // Include the WebServer library
 #include <ESP8266HTTPClient.h>
-#include <ArduinoJson.h>
 #include <MFRC522.h>
-#include <base64.h>
+#include <ESP8266WebServer.h>   // Include the WebServer library
 
 #include "credentials.h"
 #include "main.h"
 #include "spotifyapi.h"
 #include "structures.h"
+#include "RFIDwrapper.h"
 #include "localStorage.h"
+#include "utils.h";
 
-#define RST_PIN    0
-#define SS_PIN    15
+
 
 ESP8266WebServer server(80);
 //HTTPClient http;
@@ -25,6 +24,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN); // Create MFRC522 instance
 
 SpotifyAPI spotifyApi;
 LocalStorage localStorage;
+RFIDWrapper rfid;
 
 String lastID = "", currID = "";
 
@@ -110,8 +110,7 @@ void loop(void) {
     }
 
 
-    currID = getIdFromNTAG();
-//    Serial.println(currID);
+    currID = rfid.getIdFromNTAG();
 
     if (!currID.equals(lastID)) {
         spotifyApi.playSpotifyResource(currID);
@@ -158,78 +157,4 @@ void handleNotFound() {
     server.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
 }
 
-
-
-
-// ============================================================
-//                          NFC Wrapper
-// ============================================================
-
-
-uint16_t generateURIChecksum(char *data) {
-
-    uint16_t checksum = 0;
-    while (*data != '\0') {
-        checksum += *data++;
-    }
-    return checksum;
-
-}
-
-String getIdFromNTAG() {
-
-    byte minBufSize = 18; // imposed by library :(
-    byte pageIdx = 0x04;
-
-
-    // Get the tag metadata (length, checksum)
-    byte metaBuffer[minBufSize];
-    mfrc522.MIFARE_Read(pageIdx++, metaBuffer, &minBufSize);
-    int idLength = metaBuffer[0]; // The length of the Spotify URI will always be less than 255.
-
-    // Read the checksum.
-    uint16_t foundChecksum = metaBuffer[1] << 8 | metaBuffer[2]; // Checksum is stored across 2 bytes.
-
-    // Calculate required buffer size.
-    byte loops = ceil((idLength) / 16.0) + 1;
-    byte bufferSize = (16 * loops) + 2;
-    byte buffer[bufferSize];
-    byte *bufferPtr = buffer;
-
-
-    for (int i = 0; i < loops; i++) {
-        mfrc522.MIFARE_Read(pageIdx, bufferPtr, &bufferSize);
-        bufferPtr += 16;
-        pageIdx += 4;
-    }
-
-    String id = "";
-    for (int i = 0; i < idLength; i++) {
-        id += (char) buffer[i];
-    }
-
-    // Calculate checksum
-//    uint16_t calcChecksum = generateURIChecksum(id); // GOT HERE - refactor to remove strings!!!!
-
-    return id;
-}
-
-
-
-
-// ============================================================
-//                          Utility
-// ============================================================
-
-
-
-
-void dumpByteArray(byte *buffer, byte bufferSize) {
-    Serial.println();
-    for (byte i = 0; i < bufferSize; i++) {
-        Serial.print(buffer[i] < 0x10 ? " 0" : " ");
-        Serial.print(buffer[i], HEX);
-    }
-    Serial.println();
-}
 

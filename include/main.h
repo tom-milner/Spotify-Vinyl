@@ -6,9 +6,9 @@
 #define RECORDPLAYER_MAIN_H
 
 
+void setup();
 
-
-
+void loop();
 
 
 // ============================================================
@@ -17,30 +17,6 @@
 void handleAuth();
 
 void handleNotFound();
-
-
-
-
-
-// ============================================================
-//                          NFC Wrapper
-// ============================================================
-
-uint16_t generateURIChecksum(char * data);
-
-String getIdFromNTAG();
-
-
-
-
-
-// ============================================================
-//                          Utility
-// ============================================================
-void dumpByteArray(byte *buffer, byte bufferSize);
-
-void dumpInternalEEPROM();
-
 
 
 #endif //RECORDPLAYER_MAIN_H
