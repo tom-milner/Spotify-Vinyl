@@ -70,7 +70,7 @@ void setup(void) {
 
 
     // Get the past refresh token from EEPROM.
-//    spotifyApi.setRefreshToken(localStorage.readRefreshToken());
+    spotifyApi.setRefreshToken(localStorage.readRefreshToken());
 
     // If there is no refresh token, setup the webserver for authentication.
     if (spotifyApi.getRefreshToken().equals("")) {
@@ -116,10 +116,14 @@ void loop(void) {
         return;
     }
 
+    // Check card type.
+    if(mfrc522.PICC_GetType(mfrc522.uid.sak) != MFRC522::PICC_TYPE_MIFARE_UL){
+        return; // Only use ultralight tags (for now)
+    }
 
     currID = rfid.getIdFromNTAG();
 
-    if (!currID.equals(lastID)) {
+    if (!currID.equals(lastID) && currID != "") {
         spotifyApi.playSpotifyResource(currID);
     }
 
