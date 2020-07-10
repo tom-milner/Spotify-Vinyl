@@ -4,7 +4,7 @@ Spotify-Vinyl is designed to bring back old-school record players, and combine t
 
 
 ## Features
-- Full OAuth2 support aswell as token persistence and automatic token renewal.
+- Full OAuth2 support as well as token persistence and automatic token renewal.
 - Can stream artists, albums, playlists and podcasts.
 
 
