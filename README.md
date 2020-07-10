@@ -34,5 +34,5 @@ From there, the user is redirected to a "Success" page served by the device. The
 ## NOTE
 At the moment, this only works if the Spotify account is already _active_ on a device - e.g. currently playing or paused. This project cannot start spotify on a chosen device (yet).
 
-The project is built using PlatformIO. TO use it yourself, populate `credentials.h` with your wifi details and Spotify developer details.
+The project is built using PlatformIO. To use it yourself, populate `credentials.h.b` with your wifi details and Spotify developer details and rename it to `credentials.h`
 
