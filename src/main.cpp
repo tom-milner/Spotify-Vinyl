@@ -4,6 +4,7 @@
 // WIFI!!!
 
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <ESP8266HTTPClient.h>
 #include <MFRC522.h>
 #include <ESP8266WebServer.h>   // Include the WebServer library
@@ -43,7 +44,8 @@ void setup(void) {
     Serial.println();
 
     // Connect to the wifi.
-    WiFi.hostname("eps8266");
+    char * host = "record-player";
+    WiFi.hostname(host);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
     // Wait for the Wi-Fi to connect
@@ -61,9 +63,14 @@ void setup(void) {
     Serial.println(WiFi.localIP());           // Send the IP address of the ESP8266 to the computer
 
 
+    // Setup mDNS
+    if (MDNS.begin(host)) {
+        Serial.println("MDNS responder started");
+    }
+
 
     // Get the past refresh token from EEPROM.
-    spotifyApi.setRefreshToken(localStorage.readRefreshToken());
+//    spotifyApi.setRefreshToken(localStorage.readRefreshToken());
 
     // If there is no refresh token, setup the webserver for authentication.
     if (spotifyApi.getRefreshToken().equals("")) {
