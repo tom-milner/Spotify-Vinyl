@@ -11,9 +11,9 @@
 
 #include "credentials.h"
 #include "main.h"
-#include "spotifyapi.h"
+#include "spotifyAPI.h"
 #include "structures.h"
-#include "RFIDwrapper.h"
+#include "rfidWrapper.h"
 #include "localStorage.h"
 #include "utils.h";
 

@@ -8,7 +8,7 @@
 #include <base64.h>
 
 
-#include "spotifyapi.h"
+#include "spotifyAPI.h"
 #include "structures.h"
 #include "credentials.h"
 

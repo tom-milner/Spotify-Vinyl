@@ -2,7 +2,7 @@
 // Created by Tom Milner on 08/07/2020.
 //
 
-#include "RFIDwrapper.h"
+#include "rfidWrapper.h"
 #include <MFRC522.h>
 
 uint16_t RFIDWrapper::generateURIChecksum(const char *data) {
