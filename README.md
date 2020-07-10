@@ -10,7 +10,7 @@ Spotify-Vinyl is designed to bring back old-school record players, and combine t
 
 
 ## Explanation
-The project emulates a record player using an MFRC522 reader and an ESP8265.
+The project emulates a record player using an MFRC522 reader and an ESP8266.
 The MFRC522 is used to read and write Spotify URIs from NFC tags (the current implementation uses NTAG-15 stickers). When read, the ESP8266 sends a request to the Spotify API to play the content corresponding to that URI.
 By using the exact Spotify URI instead of the NTAG-15 UIDs, any amount of content can be streamed as the device doesn't need to link UIDs to spotify URIs - the URIs can just be sent straight to Spotify.
 
