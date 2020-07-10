@@ -18,7 +18,7 @@ public :
 
     RFIDWrapper(): mfrc522(SS_PIN, RST_PIN) {};
 
-    uint16_t generateURIChecksum(char *data);
+    uint16_t generateURIChecksum(const char *data);
 
     String getIdFromNTAG();
 

@@ -124,6 +124,11 @@ void SpotifyAPI::playSpotifyResource(String id) {
 
     http.end();
 
+    if(responseCode != 204){
+        refreshAccessToken();
+        playSpotifyResource(id);
+    }
+
 }
 
 String SpotifyAPI::getRefreshToken() {

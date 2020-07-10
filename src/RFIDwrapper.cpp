@@ -5,7 +5,7 @@
 #include "RFIDwrapper.h"
 #include <MFRC522.h>
 
-uint16_t RFIDWrapper::generateURIChecksum(char *data) {
+uint16_t RFIDWrapper::generateURIChecksum(const char *data) {
     uint16_t checksum = 0;
     while (*data != '\0') {
         checksum += *data++;
@@ -23,8 +23,16 @@ String RFIDWrapper::getIdFromNTAG() {
     mfrc522.MIFARE_Read(pageIdx++, metaBuffer, &minBufSize);
     int idLength = metaBuffer[0]; // The length of the Spotify URI will always be less than 255.
 
+    Serial.println(metaBuffer[1], BIN);
+    Serial.println(metaBuffer[2], BIN);
+    Serial.println();
+
     // Read the checksum.
     uint16_t foundChecksum = metaBuffer[1] << 8 | metaBuffer[2]; // Checksum is stored across 2 bytes.
+    Serial.println();
+    Serial.print("Found checksum: ");
+    Serial.println(foundChecksum, BIN);
+    Serial.println(foundChecksum);
 
     // Calculate required buffer size.
     byte loops = ceil((idLength) / 16.0) + 1;
@@ -45,7 +53,14 @@ String RFIDWrapper::getIdFromNTAG() {
     }
 
     // Calculate checksum
-//    uint16_t calcChecksum = generateURIChecksum(id); // GOT HERE - refactor to remove strings!!!!
+    uint16_t calcChecksum = generateURIChecksum(id.c_str());
+    Serial.println();
+    Serial.print("Calculated checksum: ");
+    Serial.println(calcChecksum);
 
+    if (calcChecksum != foundChecksum) {
+        return "";
+    }
+    Serial.println(id);
     return id;
 }
